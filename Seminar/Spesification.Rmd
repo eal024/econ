@@ -1,0 +1,204 @@
+---
+title: "sem3_spesification.R"
+author: "E"
+date: "1/27/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+## Seminar 3 OLS, Spesification
+
+### 1)
+
+Model: $$\ y = E[y|x,z] + \epsilon $$
+
+Choose preferred specification, and the object is to predict.
+
+```{r, hide = F}
+
+sem1ex1 <- haven::read_dta("data/econ4137sem1ex1.dta")
+
+summary(sem1ex1)
+
+# 1) linaer
+sem1ex1 %>%  lm( y ~ x , data = .) %>% summary()
+
+# log -log
+sem1ex1 %>%  lm( log(y) ~ I( log(x)) + z , data = .) %>% summary()
+
+# log-log
+sem1ex1 %>%  lm( log(y) ~ I( log(x)) , data = .) %>% summary()
+
+```
+
+#### ii) Test functional form
+
+With two alternative models that are non nested, the R² and AIC/BIC cant be used. An alternativ approch is to use the Box-Cox transformation (PE-test).
+
+*1) Estimate both models.*
+
+*2) predict* $\hat{y}$ and $\hat{log(y)}$\*
+
+\*3) t-statistics of $\delta$ and model $y = x\beta + \delta_{tLLM}[(log(y) - log(\hat{y})] + \epsilon$
+
+```{r}
+
+model_l <- sem1ex1 %>% lm( y ~x, data = .)
+model_log <- sem1ex1 %>% lm( I(log(y)) ~I(log(x)), data = .)
+
+# fit the model
+sem1ex1$yhat <- model_l$fitted.values
+sem1ex1$yhat_log <- model_log$fitted.values
+
+PE_test <- sem1ex1 %>% 
+  mutate( yhat_test = (log(yhat) - yhat_log),
+          ) %>% 
+  lm( y ~ x + yhat_test, data = .)
+
+summary(PE_test)
+
+```
+
+PE_test - cant rejcet log model. Appear that linear model is preferred.
+
+```{r}
+PE_test2 <- sem1ex1 %>% 
+  mutate( log_test = (yhat - exp(yhat_log) ) )%>% 
+  lm( y ~ x + log_test, data = .)
+
+summary(PE_test2)
+```
+
+cant reject. Seems that also log-model are preferred.
+
+## 2 3.2 Verbeek
+
+Clothing.dta contains information of sales, size and other characteristics of 400 Dutch men\`s fashion stores.
+
+Goal is to explain sales per squaremetre (sales).
+
+```{r}
+fs::ls_dir()
+clothing <- haven::read_dta("data/clothing.dta")
+
+head(clothing)
+```
+
+#### a1)
+
+The linear model D:
+
+$$
+log(sales) = x\beta + \epsilon  
+$$
+
+Where x = {log sales, log shop size and a constant}.
+
+```{r}
+mD <- clothing %>% mutate( lnsales = log(sales),
+                           lnhourw = log(hoursw),
+                           lnsize = log(ssize)
+                           ) %>% 
+  lm( lnsales ~ lnhourw + lnsize , data = .)
+
+summary(mD)
+```
+
+#### a2) The linear model: $sales = \alpha + x\beta + hoursw + size$
+
+```{r}
+
+modelA <- clothing %>% lm( sales ~ hoursw + ssize, data = .)
+
+summary(modelA)
+```
+
+#### b) RESET
+
+```{r}
+clothing$ma_fitted <- (modelA$fitted.values)^2
+
+RESET_ma <- clothing %>% lm( sales ~ hourspw + ssize + ma_fitted, data = .)
+
+summary(RESET_ma)
+
+```
+
+The RESET-test fail to reject \delta.
+
+c) Does number of owner affects shop sales?
+
+```{r}
+model_owner <- clothing %>% lm( sales ~ hoursw + ssize + nown, data = .)
+
+summary(model_owner)
+
+# F-test
+f_statistic <- function(mR, mUnR){
+  
+  R2rest <- summary(mR)$r.squared 
+  R2unr <- summary(mUnR)$r.squared
+    
+  ((R2unr-R2rest)/1)/( (1-R2unr)/(nrow(summary(mR$model))-5))  
+  
+}
+
+# Low F-stat -> cant reject H0, owner has impact
+f_statistic(mR = modelA, mUnR = model_owner)
+
+model_part_time <- clothing %>% lm( sales ~ hoursw + ssize + npart, data = .)
+
+# Low F-stat -> cant reject H0, owner has impact
+f_statistic(mR = modelA, mUnR = model_part_time)
+
+```
+
+#### e) Model B: sales ~ owner, full-times workers,parttime workers and shop size
+```{r}
+
+modelB <- clothing %>% lm( sales ~ nown + nfull + npart + ssize , data = .)
+
+
+modelB %>% summary()
+
+
+```
+
+```{r}
+summary(modelA)$adj.r.squared
+summary(modelB)$adj.r.squared
+
+# non-nested F-test
+clothing$mA_fitted <- modelA$fitted.values
+clothing$mB_fitted <- modelB$fitted.values
+
+PE <- clothing %>%
+  mutate( y_t = (sales - mB_fitted) ) %>% 
+  lm( sales ~ hoursw + ssize + y_t , data = .)
+
+PE2 <- clothing %>%
+  mutate( y_t = (sales - mA_fitted) ) %>% 
+  lm( sales ~ nown + nfull + npart + ssize + y_t , data = .)
+
+summary(PE)
+summary(PE2)
+```
+
+
+### h) The J-test
+```{r}
+
+```
+
+
+
+
+
+
+
