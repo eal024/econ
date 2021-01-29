@@ -132,7 +132,7 @@ summary(RESET_ma)
 
 The RESET-test fail to reject \delta.
 
-c) Does number of owner affects shop sales?
+c)  Does number of owner affects shop sales?
 
 ```{r}
 model_owner <- clothing %>% lm( sales ~ hoursw + ssize + nown, data = .)
@@ -159,7 +159,10 @@ f_statistic(mR = modelA, mUnR = model_part_time)
 
 ```
 
-#### e) Model B: sales ~ owner, full-times workers,parttime workers and shop size
+#### e) Model B:
+
+#### sales \~ owner, full-times workers,parttime workers and shopsize.
+
 ```{r}
 
 modelB <- clothing %>% lm( sales ~ nown + nfull + npart + ssize , data = .)
@@ -190,15 +193,129 @@ summary(PE)
 summary(PE2)
 ```
 
+Both are rejected. Both model seem appropriate. Cant conclude.
 
 ### h) The J-test
+
+The H0-hypothesis-test that $\delta$ = 0, in (test of model A): $$y=x\beta+\delta*z\gamma + u =  x\beta+\delta {\hat{y_{B}}} + u$$ Because \beta, \delta and \gamma cant be identified. The
+
 ```{r}
+# Model A)
+modelA
+
+j_test_a <- clothing %>% lm( sales ~ hoursw + ssize + mB_fitted , data = .)
+j_test_b <- clothing %>% lm( sales ~  nown + nfull  + npart + ssize + mA_fitted, data = .)
+# t-value test, test model A  
+coef(summary(j_test_a))[4,3]
+
+# t-value test, test model B  
+coef(summary(j_test_b))[6,3]
 
 ```
 
+Cant reject model A or model B.
 
+### 2a) Estimate the model:
 
+$$log(sale_i)= \beta*hourw_i + log(shopsize)+ u$$ Which model (A) or (2A) do you prefer?
 
+```{r}
+model_2a <- clothing %>%mutate( log_sales = log(sales), log_ssize = log(ssize)) %>% 
+  lm( log_sales ~ log_ssize + hoursw, data = .) 
 
+summary(modelA)
+summary(model_2a)
+```
 
+Testing the linear model:
 
+```{r}
+clothing$fitted_2A <- model_2a$fitted.values
+
+ clothing%>%
+  mutate( log_mA_fitted = log(mA_fitted),
+          yhat2A = exp(fitted_2A),
+          v_test_linear = (log_mA_fitted - fitted_2A),
+          v_test_log = (mA_fitted - yhat2A)) %>%
+  na.omit()  -> PE_data
+ 
+PE_test_a_2A <-  PE_data %>% lm( sales ~ hoursw + ssize + v_test_linear, data = .)
+PE_test_logmodel <-  PE_data %>% lm( I(log(sales)) ~ I(log(hoursw)) + I(log(ssize)) + v_test_log, data = .) 
+# t = 3.2 the linear model may be prefered
+summary(PE_test_a_2A)
+
+# t = 2.29 -> seems the linear model may be prefered
+summary(PE_test_logmodel)
+
+```
+
+## 2. The lalonde data
+
+```{r}
+lalode <- haven::read_dta("data/lalonde.dta")
+
+lalode_1 <- lalode %>% filter( sample %in% c(4,5)) 
+```
+
+Data from National Supported Work Demonstration (NSW). Treatment (T= 1) was temporary employed, while non-experimented data is from CPS
+
+```{r}
+lalode_1 %>% skimr::skim()
+```
+
+```{r}
+lalode_1 %>%
+  select(-outcome) %>% 
+  pivot_longer( names_to = "var", values_to = "values", age:earnings78) %>% 
+  group_by( var) %>%
+  mutate( dummie = ifelse( var %in% c("black", "hispanic", "married", "nodegree"), 1,0 )) %>% 
+  filter( dummie == 0   ) %>% 
+  mutate( values_2 = values/max(values, na.rm = T),
+          big_value = ifelse( str_detect(var, "earnings|age"), "Big", "small  value")
+          ) %>% 
+  ggplot( aes( x = var, y = values, fill = factor(treatment) )) + geom_boxplot( )  +
+  scale_y_log10() +
+  coord_flip()
+```
+
+```{r}
+ate1 <- lalode_1 %>% lm( earnings78 ~ treatment, data = .)
+
+ate2 <- lalode_1 %>% lm( earnings78 ~ treatment + age + earnings75 + hispanic + black + married + education + nodegree, data = .)
+
+ate1 %>% summary()
+ate2 %>% summary()
+```
+
+Average treatment effect is 886 with no cotrols and 800 with controls. The result is based on a random assignment sample.
+
+#### d) Using the CPS (non-random sample), and use the non-random sample as a control group.
+
+```{r}
+lalode_2 <- lalode %>% filter( sample %in% c(3,5))
+
+viz_dta <- lalode_2 %>% 
+    select(-outcome) %>% 
+  pivot_longer( names_to = "var", values_to = "values", age:earnings78) %>% 
+  group_by( var) %>%
+  mutate( dummie = ifelse( var %in% c("black", "hispanic", "married", "nodegree"), 1,0 ))
+
+viz_dta %>% filter( dummie == 0   ) %>% 
+  mutate( values_2 = values/max(values, na.rm = T),
+          big_value = ifelse( str_detect(var, "earnings|age"), "Big", "small  value")
+          ) %>% 
+  ggplot( aes( x = fct_reorder(var, values) , y = values, fill = factor(treatment) )) + geom_boxplot( )  +
+  scale_y_log10() +
+  coord_flip()
+
+#
+viz_dta %>% 
+  filter( dummie == 1 ) %>% 
+  group_by(  var, treatment) %>% 
+  summarise( antall = n(), mean = mean(values), sd = sd(values) ) %>%
+  ggplot( aes(y = mean, x = fct_reorder(var, mean), fill = factor(treatment), color = factor(treatment) )) +
+  geom_col( position = position_dodge2()) +
+  coord_flip()
+  
+
+```
