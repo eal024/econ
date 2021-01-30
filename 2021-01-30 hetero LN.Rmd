@@ -1,0 +1,74 @@
+---
+title: "Heteroskedasticity210130"
+author: "(Lecturenotes and Verbeek chapter 4)"
+date: "1/30/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+## Heteroskedasticity
+
+* Residual variance increases with the gap between regression line and CEF
+
+Ocurs when:
+*-* When assumed $f(x) = x\beta$ is wrong 
+*-* 
+
+```{r}
+x  <- sample(c(1:100), size = 100, replace = T)
+u <- rnorm(n = 100, mean = 0, sd = (x^1.5)^.5 )
+
+df <- tibble( x = x, y = 1 + 0.5*x  +u)
+
+model_wrong_f <- df %>% lm( y ~ x, data = .)
+
+
+df$uhat <- model_wrong_f$residuals
+
+```
+
+Illustration of the hetero
+```{r}
+df %>% ggplot( aes( y = uhat, x = x)) + geom_point()
+```
+
+### Example 2) Wooldrigde price data
+```{r}
+hprice1 <- wooldridge::hprice1 %>% as_tibble()
+
+model_price_sqrt <- hprice1 %>% 
+  lm( price ~ sqrft, data = .) 
+
+tibble(res = model_price_sqrt$residuals, sqrft = hprice1$sqrft) %>% 
+  ggplot( aes( x = sqrft, y = res)) + geom_point()
+```
+
+
+#### Testing for Heteroskedasticity
+
+*-* 1) White Test: OLS, auxiliary regression equation
+  i) reg( e² ~ XB + X²B + (X1*X2B+..))
+  ii) R² of auxilary regression should be small.
+  --> Not only heterosked. thats tested byt also error
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
