@@ -14,11 +14,9 @@ library(tidyverse)
 
 ## Heteroskedasticity
 
-* Residual variance increases with the gap between regression line and CEF
+-   Residual variance increases with the gap between regression line and CEF
 
-Ocurs when:
-*-* When assumed $f(x) = x\beta$ is wrong 
-*-* 
+Occurs when assumptions $f(x) = x\beta$ is wrong
 
 ```{r}
 x  <- sample(c(1:100), size = 100, replace = T)
@@ -34,37 +32,121 @@ df$uhat <- model_wrong_f$residuals
 ```
 
 Illustration of the hetero
+
 ```{r}
 df %>% ggplot( aes( y = uhat, x = x)) + geom_point()
 ```
 
 ### Example 2) Wooldrigde price data
+
 ```{r}
 hprice1 <- wooldridge::hprice1 %>% as_tibble()
 
-model_price_sqrt <- hprice1 %>% 
-  lm( price ~ sqrft, data = .) 
+library(estimatr)
+model <- "price ~ lotsize + sqrft"
 
-tibble(res = model_price_sqrt$residuals, sqrft = hprice1$sqrft) %>% 
-  ggplot( aes( x = sqrft, y = res)) + geom_point()
+hprice1
+
+# OLS
+price_house_model <- hprice1 %>% lm( price ~ lotsize + sqrft , data = . ) 
+
+#
+summary(price_house_model)
+
+# OLS with robust
+hprice1 %>% estimatr::lm_robust( price ~ lotsize + sqrft, se_type = "HC1" , data = . ) %>% summary()
+
 ```
-
 
 #### Testing for Heteroskedasticity
 
-*-* 1) White Test: OLS, auxiliary regression equation
-  i) reg( e² ~ XB + X²B + (X1*X2B+..))
-  ii) R² of auxilary regression should be small.
-  --> Not only heterosked. thats tested byt also error
+1) White Test: OLS, auxiliary regression equation
+
+- i) \$\e² = \X\beta + \X\^2\\beta\_{2} + \\(X1\*X2B+..)\$
+
+- ii) R² should be small. --\> Not only heterosked. thats tested byt also error
+
+#### Example 1
+```{r}
+price_model_1 <- hprice1 %>% lm( price  ~ lotsize + sqrft , data = .)
+
+hprice1$res <- resid(price_model_1)
+
+hprice1 %>% lm( I(res^2) ~ lotsize + sqrft , data = .) %>% summary()
+
+bptest(price_model_1)
+bptest(price_model_1, ~ fitted(price_model_1) + I(fitted(price_model_1)) )
+
+```
 
 
 
+##### Example 2
+
+```{r example_white_test}
+
+price_model <- hprice1 %>%  lm( price ~ lotsize + sqrft + bdrms, data = . )
+
+summary(price_house_model)
 
 
 
+# BP-test
+# Auxiliary : price ~ x + y + x² + y² + x*y
+library(lmtest)
+bptest( price_model)
 
+broom::augment(price_model) %>% mutate( u2 = (.resid)^2) 
+resid(price_model)^2 %>% head()
 
+# Auxliary-eq
+aux_reg <- broom::augment(price_model) %>% mutate( u2 = (.resid)^2) %>% 
+  # Model
+  lm( u2 ~ lotsize + sqrft + bdrms, data = .)
 
+# White-test
+bptest( price_model, ~ fitted(price_model) + I(fitted(price_model)^2) )
+```
+
+#### Example 3
+
+```{r}
+price_m3 <- as_tibble(hprice1) %>% lm( lprice ~ llotsize + sqrft, data = .) 
+
+summary(price_m3)
+
+# Robust se
+as_tibble(hprice1) %>% estimatr::lm_robust( lprice ~ llotsize + sqrft, se_type = "HC1" ,data = .) 
+
+## White
+price_model_res_2 <- hprice1 %>%
+  mutate( u2 = (resid(price_m3)^2) ) %>% 
+  lm( u2 ~llotsize + sqrft + I(llotsize^2) + I(sqrft^2) +  I(sqrft*llotsize) , data  = .)
+ 
+# 2
+price_model_res <- hprice1 %>%
+  mutate( u2 = (resid(price_m3)^2) ) %>% 
+  lm( u2 ~llotsize + sqrft, data = .)
+
+summary(price_model_res_2) 
+
+(summary(price_model_res_2)$r.squared*nrow(hprice1))
+
+library(lmtest)
+bptest( price_m3, ~ fitted(price_m3) + I(fitted(price_m3)^2) )
+bptest( price_m3, ~ llotsize + sqrft + I(llotsize^2) + I(sqrft^2) +  I(sqrft*llotsize), data = hprice1)
+pchisq((summary(price_model_res)$r.squared*nrow(hprice1)), (2) ,lower.tail = FALSE)
+
+## Alt 2
+
+price_m4 <- hprice1 %>% lm( I(log(price)) ~ I(log(lotsize)) +I(log(sqrft)) + bdrms, data = . )
+
+price_m4 %>% summary()
+
+bptest(price_m4)
+bptest(price_m4, ~ fitted(price_m4) + I(fitted(price_m4)^2) )
+
+```
 
 
 
