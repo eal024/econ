@@ -49,11 +49,129 @@ summary(auxilar_model_1)
 
 ```
 
-Data contains some small and some large firms, values may diviate a lot, including unobserved characteristics in e 
+Data contains some small and some large firms, values may diviate a lot, including unobserved characteristics in e.
+
+##### 1.step: Use log-linear model.
 ```{r}
 # Use log
 wage2 %>% ggplot( aes( x = wage)) + geom_histogram() + scale_x_log10()
 
 ```
+
+Model demand for L
+
+```{r}
+log_model_l_demand <- wage2 %>% 
+  lm( I(log(labour)) ~I(log(wage)) + I(log(output)) + I(log(capital)),
+      data = .)
+
+summary(log_model_l_demand)
+```
+
+*-*Interpretation: 1% increaste output, leads to 0.99% increase in L-demand.
+
+Test for heteroskedasticity:
+
+```{r}
+wage2$residuals_2 <- (log_model_l_demand$residuals)^2 
+
+
+BP_test <- wage2 %>% 
+  lm( residuals_2 ~I(log(wage)) + I(log(output)) + I(log(capital)),
+      data = .) 
+
+chi_test_score <-summary(BP_test)$r.squared*nrow(wage2)
+
+
+pchisq(chi_test_score, df = 3, lower.tail = F)
+
+```
+
+Which is on margin above 5. J = regressors (equal = 3)
+
+#### The White-test
+
+*-* The Auxiliary regression white test:
+
+```{r}
+
+wage_2 <- wage2 %>% 
+  mutate(
+    log_wage = log(wage),
+    log_output = log(output),
+    log_capital = log(capital),
+    log_w_2 = log_wage^2,
+    log_out_2 = log_output^2,
+    log_capital_2 = log_capital^2,
+    l_w_l_o = log_wage*log_output,
+    l_w_l_c = log_wage*log_capital,
+    l_o_l_c = log_output*log_capital
+  )  
+
+wage_2 <-wage_2 %>%   lm( residuals_2 ~log_wage+log_output+log_capital+log_w_2+log_out_2+log_capital_2+
+        l_w_l_o + l_w_l_c + l_o_l_c,      data = .) 
+
+
+
+
+
+chi_sq_value_test <- summary(white_test)$r.squared*nrow(wage2) 
+
+# Significant, can reject Hetroskedasteciut
+pchisq(chi_sq_value_test, df = 9, lower.tail = F)
+
+nrow(wage2)
+
+```
+
+*-* Report White-robust standard errors:
+
+```{r}
+l_model_robust_se <- wage2 %>% estimatr::lm_robust( I(log(labour)) ~I(log(wage)) + I(log(output)) + I(log(wage)) + I(log(capital)), se_type = "HC1" ,data = . )
+
+summary(log_model_l_demand)
+summary(l_model_robust_se)
+```
+
+### EGLS
+
+```{r}
+wage2$resudal_2 <- (log_model_l_demand$residual)^2
+```
+
+```{r}
+e_model <-wage2 %>% 
+  lm( I(log(resudal_2)) ~ I(log(wage)) + I(log(output)) + I(log(capital)),
+      data = .)
+
+
+summary(e_model)
+```
+The summary result lead to rejection of H0 of homosedasticy
+
+
+```{r}
+
+# Transfomr the fitted value exp(:)^0.5
+wage2$exp_fitted_e <- (exp(e_model$fitted.values))^.5
+
+model_egls <- wage2 %>% 
+  mutate( log_l_e = log(labour)/exp_fitted_e,
+          log_w_e = log(wage)/exp_fitted_e,
+          log_o_e = log(output)/exp_fitted_e,
+          log_c_e = log(capital)/exp_fitted_e,
+          c_e = 1/exp_fitted_e
+          ) %>% 
+  lm( log_l_e ~ 0 + c_e + log_w_e + log_o_e  + log_c_e  , data = .)
+
+summary(model_egls)
+summary( log_model_l_demand)
+
+cor(log(wage2$labour), (model_egls$fitted.values))^2
+# Whcih is lower than OLS
+```
+
+
+
 
 
