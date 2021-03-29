@@ -1,5 +1,3 @@
-
-
 # 
 library(tidyverse)
 
@@ -36,12 +34,12 @@ stargazer::stargazer(lpm,probit,logit, type = "text")
 tibble( model = c("lpm","probit", "logit"), mean = map_dbl(list( lpm, probit, logit), ~.x %>% predict( type = "response" ) %>% mean() ),
         sd = map_dbl(list(lpm, probit, logit), ~.x %>% predict( type = "response" ) %>% sd() ),
         min = map_dbl(list(lpm, probit, logit), ~.x %>% predict( type = "response" ) %>% min() )
-        ) %>% 
+) %>% 
   add_row( model = "inv",
            mean = priv_insurance_1$ins %>% mean(),
            sd =  priv_insurance_1$ins %>% sd(),
            min  = priv_insurance_1$ins %>%  min(na.rm = T)
-           )
+  )
 
 
 
@@ -99,6 +97,15 @@ coeftest(lpm, vocv = vcovHC, type = "HC1")
 aod::wald.test( b = coef(probit), Sigma = vcov(probit), Terms = c(2,5))
 
 # Prob
+probit_null <- priv_insurance_1 %>% glm( ins ~ age +hstatusg  + educyear + married + hisp , data = ., family = binomial(link = "probit"))
+
+anova( probit, probit_null, test = "LRT")
+
+# Manually:
+-2*as.numeric( logLik(probit) - logLik( probit_null) )
+
+## Chi( df = 2): 9.21 => 99% significant level 
+qchisq( p = (1-0.000725), df = 2)
 
 # The difference between two parameter:
 # Swithing places by 1 and -1
@@ -122,7 +129,7 @@ probit
 logLik(probit)
 pR2 <- 1 - probit$deviance/probit$null.deviance
 1-logLik(probit)[1]/logLik( glm(ins ~ 1, data = priv_insurance_1, family =  binomial(link = "probit") ) )[1]
-  
+
 # 2) How many per cent correctly predicted?
 
 prob_probit <- probit %>% predict( type = "response")
@@ -157,12 +164,6 @@ trues <- ifelse( priv_insurance_1$ins == 0, "no", "yes" )
 tibble( pred = pred, t = trues, correct = ifelse(pred == t, 1, 0)) %>% group_by(t, correct) %>% count()  
 # The caret packages
 caret::confusionMatrix( factor(pred), factor(trues))
-
-
-
-
-
-
 
 
 
