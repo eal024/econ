@@ -29,6 +29,8 @@ as_tibble(Heating) %>% select(ic.gc:oc.hp) %>%
 # Multinomial Choice: Characterize of individual that choose (room, income agehed)
 model0 <- nnet::multinom( depvar ~income + agehed + rooms + factor(region), data = Heating)
 
+
+
 coef <- as_tibble(summary(model0)$coefficients) %>% mutate( depvar = summary(model0)$coefficients %>% row.names()) %>% select(depvar, everything())
 
 coef

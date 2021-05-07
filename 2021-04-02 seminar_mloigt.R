@@ -22,17 +22,14 @@ names(data) <- c(  names(data)[1:2],
 )
 
 
-data_1 <- data
-
 # Lang as:
 #expand_grid( mode = unique( data$mode) , id = 1:nrow(data)  ) %>% arrange( id) %>% left_join(data, by = c("mode", "id" = "idcase")) %>% group_by(id) %>% arrange(id, pbeach) %>% 
-data_1_mlogit <- dfidx(data_1, choice = "mode", varying = c(3:10))
+
 
 
 # mlogit ------------------------------------------------------------------
 
 # a) Some descriptive data: 
-
 # How many choose those different alternatives:
 andel <- data %>% group_by(mode) %>% count() %>% ungroup( ) %>% mutate( andel = n/sum(n))
 
@@ -41,6 +38,7 @@ andel
 data %>% group_by(mode) %>% summarise_at( vars( p.beach:p.charter), mean)
 
 # Quantum
+data %>% group_by(mode) %>% summarise_at( vars( q.beach:q.charter), mean)
 
 # Individual specific
 data %>% group_by(mode) %>% summarise_at( vars( income), mean)
@@ -49,19 +47,22 @@ data %>% group_by(mode) %>% summarise_at( vars( income), mean)
 g <- data %>% 
   mutate( pincome = income*10) %>% 
   select(-idcase, -income) %>% 
-  pivot_longer( -mode) %>% 
+  pivot_longer( -mode ) %>% 
   mutate( v_class = ifelse( str_detect(name, "^p"), "heigh", "low"  )  )  %>% 
+  separate( col= name, into= c("komp", "mode2"), remove = F) %>%
+  mutate( e = ifelse( mode == mode2, 1, 0 ), ) %>% replace_na( list(e = 0)) %>%  
   group_by( v_class) %>% 
   nest() %>% 
   mutate( graph = map( data, function(x) { x %>%
-      ggplot( aes( x = fct_reorder(name, value), y = value )) +
+      ggplot( aes( x = fct_reorder(name, value), y = value , fill = factor(e) )) +
       geom_boxplot() +
       facet_wrap(  ~mode , scales = "free_y")  + theme( axis.text.x = element_text( angle = 45) )}
       )
       )
 # Price and quantum
-g$graph[[2]]
+g$graph[[1]]
 
+g$data[[1]] %>% separate( col= name, into= c("komp", "mode2")) %>% mutate( e = ifelse( mode == mode2, 1, 0 )) %>% replace_na( list(e = 0))
 
 # b) The multinomial logit model---------------------------------------------------------------
 
@@ -69,23 +70,34 @@ g$graph[[2]]
 # The conditional model: characteristics of the choice 
 
 # b) Multinomial conditional Logit model: characteristics of the choice 
-model1 <- nnet::multinom( formula = mode  ~ income, data = data %>% mutate( mode = fct_relevel( mode, "charter")))
+# model1 <- nnet::multinom( formula = mode  ~ income, data = data %>% mutate( mode = fct_relevel( mode, "charter")))
+# 
+# summary(model1)
+# 
+# mlogit
+model1a <- mlogit(mode ~0|income, data = dfidx( data = data, choice = "mode", varying = c(3:10) )   )
 
-summary(model1)
+summary( update(model1a, reflevel = "beach")  )
 
 coef <- as_tibble(summary(model1)$coefficients) %>% mutate( mode = summary(model1)$coefficients %>% row.names()) %>% select(mode, everything())
 coef
 
+
+
+
+# Filter for each mode
+d <- margins::marginal_effects(model1) %>% mutate( index = 1:nrow(margins::marginal_effects(model1))) %>% as_tibble() %>%
+  left_join( data %>% select( mode) %>% mutate( index = 1:nrow(data)) , by = "index" ) %>%
+  group_by( mode) %>% 
+  nest() 
+
+# Reflevel == beach, filter by pier (3), mean marginal effect
+d$data[[3]] %>% summarise( mean(dydx_income), antall= n()) 
+
 # Predicted
-fitted( model1 ) %>% as_tibble() %>% summarise_all( list(mean = mean, sum = sum) )
+fitted( model1 ) %>% as_tibble() %>% summarise_all( list(mean = mean) )
 
 
-# Margins:  Gå igjennom denne igjen:
-tibble(  mode = unique(data$mode), data = list(data)) %>% 
-  mutate( data = map2(mode, data, function(x,y) { y %>% filter( mode == x)  } ),
-          marginal = map(data, function(x) margins::marginal_effects( model1 , data = x) %>% as_tibble() %>% summarise_all(mean))
-          )  %>% 
-  unnest(marginal)
   
 # Consider 10% income
 
@@ -112,9 +124,10 @@ fitted(model1, outcome = F) %>% broom::tidy() %>% summarise_all( mean) %>% pivot
 fitted(model2, outcome = F) %>% broom::tidy() %>% summarise_all( mean) %>% pivot_longer( cols = everything(), names_to = "mode", values_to = "estimert_andel")
 
 andel
-0.151+0.113
 
-# Conclusion: The fit is equal -> predict the same prob.
+
+# Test those two models:
+# Look at example:https://cran.r-project.org/web/packages/mlogit/vignettes/e1mlogit.html
 
 # d) IIA property:
 
@@ -122,66 +135,40 @@ andel
 
 # # e) conditional logit model ----------------------------------------
 
-# Partial effects of price: 10% decrease
-data_2 <- data %>% mutate_at( vars(p.beach:p.charter),  ~.x*0.9) 
+data_1_mlogit <- dfidx(data, choice = "mode", varying = c(3:10))
 
-# adjusted data
-data_2_mlogit <- dfidx(data_2, choice = "mode", varying = c(3:10))
+model3_cml <- mlogit( data = data_1_mlogit, formula = mode ~ p + q|0, reflevel = "beach")
 
-# All prices decrease with 10%
-predict( model1, newdata = data_2_mlogit) %>% as_tibble() %>% summarise_all(mean) %>% pivot_longer( cols = everything(), names_to = "mode", values_to = "estimert_andel") %>% 
-  left_join(andel, by = "mode") %>% 
-  mutate( delta = andel -estimert_andel)
+summary(model3_cml)
+p_e <- summary(model3_cml)$CoefTable %>% broom::tidy() %>% filter( .rownames == "p") %>% pull(Estimate)
+q_e <- summary(model3_cml)$CoefTable %>% broom::tidy() %>% filter( .rownames == "q") %>% pull(Estimate)
+# Partial effects for those who choose different choies: Self partial effect, for delta p
 
-# 2: Only price for beach decreases:
-data_2 <- data %>% mutate( p.beach = p.beach*0.9) %>% dfidx( choice = "mode", varying = c(3:10))
+tibble(fitted = fitted(model3_cml)) %>% mutate(idcase = 1:nrow(.))  %>% left_join(data_1_mlogit, #%>%
+                                                                                  #filter( idx$id2 == "beach" ),
+                                                                                  by = "idcase") %>%
+  filter(mode == T)  %>%
+  mutate(pr =  fitted * (1 - fitted) * (-0.02047652)) %>%
+  group_by(mode, idx$id2) %>%
+  summarise(mean_p = mean(pr))
 
-# Only price for beach decreases:
-predict( model1, newdata = data_2_mlogit) %>% as_tibble() %>% summarise_all(mean) %>% pivot_longer( cols = everything(), names_to = "mode", values_to = "estimert_andel") %>% 
-  left_join(andel, by = "mode")
-
-
-
-data_3 <- data %>% 
-  mutate( mode = as.character(mode),
-          mode = ifelse( mode %in% c("pier", "beach") , "pierbeach", mode) %>% as.factor()
-          )  %>% 
-  mutate( p.pierbeach = (p.pier + p.beach)/2, q.pierbeach = (q.pier + q.beach)/2 ) %>% 
-  select( -c(p.beach, p.pier, q.beach, q.pier) ) %>% 
-  relocate( income, .after = q.pierbeach) %>% 
-  dfidx( choice = "mode", varying = c(3:8))
-
-model2 <- mlogit::mlogit( formula = mode ~ p + q ,data = data_3, reflevel = "private")
-
-# Does the coeff. changes? No, they do not.
-model1 %>% summary()
-model2 %>% summary()
-
-fitted(model1, outcome = F) %>% as_tibble() %>% summarise_all(mean)
-fitted(model2, outcome = F) %>% as_tibble() %>% summarise_all(mean) #0.113+0.151: fitted is also equal
-
-
-## d) The IIA property
-
-
-
-# Appendix ----------------------------------------------------------------
-model_nnet <- nnet::multinom( formula =  mode ~ income , data  = data) 
-
-# model 
-coef <- summary(model_nnet)$coefficients %>% as_tibble() %>% mutate( mode = summary(model_nnet)$coefficients %>% row.names()) %>% select(mode, everything() )
-
-coef
-
-# Predicted
-andel %>% left_join( 
-  fitted( model_nnet ) %>% as_tibble() %>% summarise_all( list(mean) ) %>% 
-    pivot_longer( everything(), names_to = "mode", values_to = "predicted")
-  , by = "mode")
-
-
-# Margins
-margins::marginal_effects( model_nnet, data = Heating) %>% as_tibble()
+#
+tibble(fitted = fitted(model3_cml)) %>% mutate(idcase = 1:nrow(.))  %>% left_join(data_1_mlogit, #%>%
+                                                                                    #filter( idx$id2 == "beach" ),
+                                                                                    by = "idcase") %>% 
+  mutate( f = exp(p_e *p + q_e*q) ) %>% 
+  group_by( idcase) %>% 
+  mutate( pr = f/sum(f),
+          pr_t = pr[mode == T]
+          ) %>% 
+  arrange( idcase, mode) %>% 
+  ungroup() %>% 
+  mutate( dpr = ifelse( mode == T, pr_t*(1-pr_t)*p_e , -pr_t*pr*p_e) ) %>% 
+  filter( idx$id2 == c("beach", "pier"  ) ) %>% 
+  group_by( idx$id2, mode) %>% 
+  summarise( dpr = mean(dpr) )
+  
+  
 
 
 
@@ -190,13 +177,87 @@ margins::marginal_effects( model_nnet, data = Heating) %>% as_tibble()
 
 
 
+# Different modes:
+condtinoal_models <- tibble( mode = data$mode %>% unique(),
+        d = list(data)
+        ) %>% 
+  mutate( d = pmap( list( d = d, m = mode), function(d, m) { d %>% filter( mode == m)})) %>% 
+  # mutate( d_p = map(d, ~.x %>% mutate_at( vars(p.beach:p.charter), function(x){x*0.9} ) )) %>% 
+  # mutate( d_q = map(d, ~.x %>% mutate_at( vars(q.beach:q.charter), function(x){x*0.9} ) )) %>% 
+  # Models
+  # condition models
+  mutate_at( vars(d), function(x) {map(x, function(x){ mlogit( mode ~ p + q|0, reflevel = "beach", data = dfidx(x, choice = "mode", varying = c(3:10)) )  } )} ) 
+
+
+andel
+model3_cml %>% predict() %>% broom::tidy( ) %>% left_join(andel, by = c("names" = "mode") )
+
+#
+condtinoal_models$mode[[1]] 
+# Condtional model at mode == beach [[1]]
+condtinoal_models$d[[1]] %>% summary()
+
+
+# Marginal effects
+
+new_data <- dfidx( data = data %>% mutate_at( vars(p.beach), function(x){x*0.9}),
+                   choice = "mode",
+                   varying = 3:10
+                   )
+
+
+model3_cml %>% predict( newdata = new_data) %>% broom::tidy() %>%  summarise_all( mean) %>% 
+  pivot_longer( everything(), names_to = "names", values_to = "value_marginal") %>% 
+  left_join(model3_cml %>% predict( ) %>% broom::tidy() %>% rename( value = x)  , by = "names") %>% 
+  # Delta
+  mutate( delta = value_marginal -value )
 
 
 
+# The mixed model:
+model4_mixed <-  mlogit( data = dfidx(data, choice = "mode", varying = c(3:10)) ,
+        formula = mode ~ q + p| income
+        )
 
 
+summary(model4_mixed)
 
+# Sample partial effects:
+model4_mixed %>% predict()
+model4_mixed %>% predict( newdata = new_data) %>% broom::tidy() %>% summarise_all(.fun = mean)
 
+new_data2 <- dfidx( data = data %>%
+                      filter( mode == "beach") %>% 
+                      mutate_at( vars(p.beach:p.charter), function(x){x*0.9}),
+                   choice = "mode",
+                   varying = 3:10
+)
+
+p <- model4_mixed %>% predict( newdata = new_data2) %>% broom::tidy() %>% summarise_all(.fun = mean)
+
+p %>% pivot_longer( everything()) %>% rename( mode = name )
+
+# All modes:
+tibble( mode = data$mode %>% unique(),
+        data = list(data)
+        ) %>% 
+  mutate( new_data = map2(data,mode, function(x,y) { 
+    dfidx( data = x %>%
+             filter( mode == y) %>% 
+             mutate_at( vars(p.beach:p.charter), function(x){x*0.9}),
+           choice = "mode",
+           varying = 3:10
+    )
+    })) %>% 
+  # Margnial effect, different modes
+  mutate( predict = map(new_data, function(x) { predict(model4_mixed, newdata = x) %>% broom::tidy() %>% summarise_all(mean)} )) %>% 
+  unnest( cols = predict) %>% 
+  mutate( type = "marginal") %>% 
+  select(-data,-new_data) %>% 
+  relocate( type , .after = mode) %>% 
+  pivot_longer( -c(mode, type)) %>% 
+  left_join( p %>% pivot_longer( everything()) %>% rename( mode = name ), by = "mode" ) %>% 
+  rename( marginal_effect_at_mode = mode)
 
 
 
